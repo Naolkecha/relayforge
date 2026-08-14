@@ -1,0 +1,52 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: relayforge
+      POSTGRES_PASSWORD: relayforge
+      POSTGRES_DB: relayforge
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U relayforge"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    volumes:
+      - redis-data:/data
+
+  migrate:
+    build: .
+    command: ["alembic", "upgrade", "head"]
+    environment: &app-env
+      RELAYFORGE_ENVIRONMENT: development
+      RELAYFORGE_DATABASE_URL: postgresql+asyncpg://relayforge:relayforge@postgres:5432/relayforge
+      RELAYFORGE_REDIS_URL: redis://redis:6379/0
+      RELAYFORGE_JWT_SECRET: ${RELAYFORGE_JWT_SECRET:?Set RELAYFORGE_JWT_SECRET in your shell or .env}
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  api:
+    build: .
+    environment: *app-env
+    ports:
+      - "8000:8000"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+
+volumes:
+  postgres-data:
+  redis-data:
